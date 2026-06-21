@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kiana</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 260px;
+  height: 500px;
+  background: transparent !important;
+  overflow: hidden;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#stage {
+  width: 260px;
+  height: 500px;
+  position: relative;
+}
+
+canvas {
+  display: block;
+  cursor: pointer;
+  -webkit-app-region: drag;
+}
+
+/* Speech Bubble */
+#bubble {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  background: rgba(255,255,255,0.97);
+  border-radius: 14px;
+  padding: 10px 13px;
+  font-size: 12.5px;
+  color: #1a1a2e;
+  line-height: 1.55;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.20), 0 1px 4px rgba(0,0,0,0.08);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.94);
+  transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+  max-height: 115px;
+  overflow-y: auto;
+  z-index: 30;
+  -webkit-app-region: no-drag;
+}
+#bubble.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+#bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 9px solid transparent;
+  border-top-color: rgba(255,255,255,0.97);
+  border-bottom: none;
+}
+
+/* Status dot */
+#status {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 35;
+  -webkit-app-region: no-drag;
+}
+#status.show { opacity: 1; }
+
+/* Chat Input */
+#chatBox {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  background: rgba(10, 14, 35, 0.88);
+  border-radius: 16px;
+  padding: 8px 8px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 30;
+  -webkit-app-region: no-drag;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+#chatBox.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
+}
+#chatBox input {
+  flex: 1;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  padding: 6px 10px;
+  color: white;
+  font-size: 11.5px;
+  outline: none;
+}
+#chatBox input::placeholder { color: rgba(255,255,255,0.35); }
+#chatBox button {
+  background: #4f6ef0;
+  border: none;
+  border-radius: 9px;
+  color: white;
+  padding: 6px 11px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+#chatBox button:hover { background: #6680ff; }
+#micBtn {
+  background: rgba(255,255,255,0.1) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  font-size: 13px !important;
+  padding: 6px 9px !important;
+}
+#micBtn.on { background: rgba(239,68,68,0.35) !important; animation: blink 0.9s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.45} }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="kiana" width="260" height="500"></canvas>
+  <div id="bubble"></div>
+  <div id="status"></div>
+  <div id="chatBox">
+    <input id="msgInput" type="text" placeholder="Talk to Kiana…" autocomplete="off" />
+    <button id="sendBtn">➤</button>
+    <button id="micBtn">🎤</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════
+const canvas = document.getElementById('kiana');
+const ctx    = canvas.getContext('2d');
+
+const S = {
+  breathT:    0,
+  blinkT:     0,
+  blinkFact:  1.0,
+  blinkPhase: 'idle',   // idle | closing | opening
+  speakT:     0,
+  speakDur:   0,
+  speaking:   false,
+  emotion:    'Relaxed',
+  chatOpen:   false,
+  micOn:      false,
+  audioChunks:[],
+  mediaRec:   null,
+};
+
+// ════════════════════════════════════════════════
+//  PALETTE
+// ════════════════════════════════════════════════
+const P = {
+  // Hair
+  hMain:   '#dde4f2',
+  hShadow: '#b8c4da',
+  hLight:  '#f2f5ff',
+  // Skin
+  skin:    '#fde8d8',
+  skinD:   '#f4c5a8',
+  skinL:   '#fff4ef',
+  // Eyes
+  eWhite:  '#f8faff',
+  eIris:   '#5baeff',
+  eIrisD:  '#2368d0',
+  ePupil:  '#17213a',
+  eLash:   '#23283a',
+  eBrow:   '#6a7a9c',
+  // Face
+  blush:   'rgba(255,120,148,0.30)',
+  nose:    'rgba(220,130,105,0.55)',
+  mouth:   '#d0606e',
+  mouthI:  '#e84060',
+  // Outfit
+  oTop:    '#f2f5ff',
+  oTopD:   '#cdd4ee',
+  oAccent: '#2e4eb8',
+  oSkirt:  '#1b2e80',
+  oSkirtL: '#2540a0',
+  oBtn:    '#3a5ee0',
+  // Misc
+  shadow:  'rgba(80,90,130,0.12)',
+  outline: 'rgba(50,60,90,0.65)',
+};
+
+// ════════════════════════════════════════════════
+//  DRAWING HELPERS
+// ════════════════════════════════════════════════
+function lg(x0,y0,x1,y1,...stops) {
+  const g = ctx.createLinearGradient(x0,y0,x1,y1);
+  stops.forEach(([t,c]) => g.addColorStop(t,c));
+  return g;
+}
+function rg(x,y,r0,r1,...stops) {
+  const g = ctx.createRadialGradient(x,y,r0,x,y,r1);
+  stops.forEach(([t,c]) => g.addColorStop(t,c));
+  return g;
+}
+
+// ════════════════════════════════════════════════
+//  CHARACTER PARTS
+// ════════════════════════════════════════════════
+
+function drawBackHair(cx, hy) {
+  // Long flowing strands behind head
+  const gr = lg(cx,hy, cx,hy+250, [0,P.hMain],[0.6,P.hShadow],[1,'#9aaac0']);
+
+  ctx.fillStyle = gr;
+  // Left strand
+  ctx.beginPath();
+  ctx.moveTo(cx-35, hy+15);
+  ctx.bezierCurveTo(cx-80, hy+60, cx-88, hy+145, cx-68, hy+238);
+  ctx.bezierCurveTo(cx-60, hy+255, cx-44, hy+262, cx-30, hy+248);
+  ctx.bezierCurveTo(cx-20, hy+230, cx-26, hy+165, cx-28, hy+100);
+  ctx.bezierCurveTo(cx-26, hy+50, cx-18, hy+22, cx-8,  hy+12);
+  ctx.fill();
+  // Right strand
+  ctx.beginPath();
+  ctx.moveTo(cx+35, hy+15);
+  ctx.bezierCurveTo(cx+80, hy+60, cx+88, hy+145, cx+68, hy+238);
+  ctx.bezierCurveTo(cx+60, hy+255, cx+44, hy+262, cx+30, hy+248);
+  ctx.bezierCurveTo(cx+20, hy+230, cx+26, hy+165, cx+28, hy+100);
+  ctx.bezierCurveTo(cx+26, hy+50, cx+18, hy+22, cx+8,  hy+12);
+  ctx.fill();
+  // Top arc
+  ctx.beginPath();
+  ctx.ellipse(cx, hy+12, 46, 22, 0, Math.PI, 0);
+  ctx.fill();
+}
+
+function drawBody(cx, by) {
+  // Shadow under body
+  ctx.fillStyle = P.shadow;
+  ctx.beginPath();
+  ctx.ellipse(cx+3, by+235, 50, 10, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Legs (skin)
+  ctx.fillStyle = P.skin;
+  // left
+  ctx.beginPath();
+  ctx.moveTo(cx-28, by+140); ctx.bezierCurveTo(cx-32,by+170, cx-30,by+215, cx-28,by+235);
+  ctx.lineTo(cx-14,by+235);  ctx.bezierCurveTo(cx-12,by+215, cx-13,by+170, cx-12,by+140);
+  ctx.closePath(); ctx.fill();
+  // right
+  ctx.beginPath();
+  ctx.moveTo(cx+28, by+140); ctx.bezierCurveTo(cx+32,by+170, cx+30,by+215, cx+28,by+235);
+  ctx.lineTo(cx+14,by+235);  ctx.bezierCurveTo(cx+12,by+215, cx+13,by+170, cx+12,by+140);
+  ctx.closePath(); ctx.fill();
+
+  // Shoes
+  ctx.fillStyle = '#15182a';
+  ctx.beginPath(); ctx.roundRect(cx-36, by+230, 25, 13, [4,4,6,6]); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(cx+11, by+230, 25, 13, [4,4,6,6]); ctx.fill();
+  // Shoe shine
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.beginPath(); ctx.roundRect(cx-34, by+231, 10, 4, 2); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(cx+13, by+231, 10, 4, 2); ctx.fill();
+
+  // Skirt
+  ctx.fillStyle = lg(cx,by+75, cx,by+145, [0,P.oSkirt],[1,P.oSkirtL]);
+  ctx.beginPath();
+  ctx.moveTo(cx-46, by+75);
+  ctx.bezierCurveTo(cx-50,by+100, cx-58,by+130, cx-55,by+148);
+  ctx.lineTo(cx+55, by+148);
+  ctx.bezierCurveTo(cx+58,by+130, cx+50,by+100, cx+46,by+75);
+  ctx.closePath(); ctx.fill();
+  // Skirt highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  ctx.moveTo(cx-30, by+75); ctx.bezierCurveTo(cx-20,by+90, cx,by+90, cx+20,by+75);
+  ctx.lineTo(cx+15,by+148); ctx.lineTo(cx-15,by+148); ctx.closePath(); ctx.fill();
+
+  // Arms (skin)
+  ctx.fillStyle = P.skin;
+  // Left
+  ctx.beginPath();
+  ctx.moveTo(cx-40, by+6);
+  ctx.bezierCurveTo(cx-56,by+22, cx-62,by+68, cx-57,by+88);
+  ctx.bezierCurveTo(cx-52,by+94, cx-44,by+91, cx-40,by+84);
+  ctx.bezierCurveTo(cx-36,by+58, cx-34,by+20, cx-32,by+7);
+  ctx.closePath(); ctx.fill();
+  // Right
+  ctx.beginPath();
+  ctx.moveTo(cx+40, by+6);
+  ctx.bezierCurveTo(cx+56,by+22, cx+62,by+68, cx+57,by+88);
+  ctx.bezierCurveTo(cx+52,by+94, cx+44,by+91, cx+40,by+84);
+  ctx.bezierCurveTo(cx+36,by+58, cx+34,by+20, cx+32,by+7);
+  ctx.closePath(); ctx.fill();
+
+  // Blouse body
+  ctx.fillStyle = lg(cx-50,by, cx+50,by, [0,P.oTopD],[0.35,P.oTop],[1,P.oTopD]);
+  ctx.beginPath();
+  ctx.moveTo(cx-46, by);
+  ctx.bezierCurveTo(cx-52,by+14, cx-54,by+55, cx-46,by+80);
+  ctx.lineTo(cx+46, by+80);
+  ctx.bezierCurveTo(cx+54,by+55, cx+52,by+14, cx+46,by);
+  ctx.closePath(); ctx.fill();
+  // Blouse center line
+  ctx.strokeStyle = 'rgba(140,155,200,0.35)'; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(cx,by+8); ctx.lineTo(cx,by+78); ctx.stroke();
+
+  // Collar
+  ctx.fillStyle = P.oAccent;
+  // V-shape
+  ctx.beginPath();
+  ctx.moveTo(cx-20, by);
+  ctx.lineTo(cx, by+30); ctx.lineTo(cx+20, by);
+  ctx.bezierCurveTo(cx+12,by+4, cx-12,by+4, cx-20,by);
+  ctx.fill();
+  // Left wing
+  ctx.beginPath();
+  ctx.moveTo(cx-20,by); ctx.lineTo(cx-44,by+22); ctx.lineTo(cx-36,by+36); ctx.lineTo(cx-8,by+16);
+  ctx.closePath(); ctx.fill();
+  // Right wing
+  ctx.beginPath();
+  ctx.moveTo(cx+20,by); ctx.lineTo(cx+44,by+22); ctx.lineTo(cx+36,by+36); ctx.lineTo(cx+8,by+16);
+  ctx.closePath(); ctx.fill();
+  // Collar buttons
+  [by+38, by+52, by+66].forEach(y => {
+    ctx.fillStyle = P.oBtn;
+    ctx.beginPath(); ctx.arc(cx, y, 3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.3)';
+    ctx.beginPath(); ctx.arc(cx-1, y-1, 1.2, 0, Math.PI*2); ctx.fill();
+  });
+  // Sleeve cuffs
+  ctx.fillStyle = P.oAccent;
+  ctx.beginPath(); ctx.ellipse(cx-50, by+86, 10, 6, -0.15, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+50, by+86, 10, 6,  0.15, 0, Math.PI*2); ctx.fill();
+}
+
+function drawHead(cx, cy) {
+  // Drop shadow
+  ctx.fillStyle = 'rgba(60,70,110,0.08)';
+  ctx.beginPath();
+  ctx.ellipse(cx+4, cy+8, 50, 58, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Head skin
+  ctx.fillStyle = rg(cx-14, cy-22, 8, 62, [0,P.skinL],[0.55,P.skin],[1,P.skinD]);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy-62);
+  ctx.bezierCurveTo(cx+52,cy-60, cx+52,cy+12, cx+36,cy+48);
+  ctx.bezierCurveTo(cx+18,cy+68, cx-18,cy+68, cx-36,cy+48);
+  ctx.bezierCurveTo(cx-52,cy+12, cx-52,cy-60, cx,cy-62);
+  ctx.fill();
+  // Ear left
+  ctx.fillStyle = P.skin;
+  ctx.beginPath(); ctx.ellipse(cx-52, cy+8, 8, 11, -0.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = P.skinD;
+  ctx.beginPath(); ctx.ellipse(cx-52, cy+8, 5,  7, -0.1, 0, Math.PI*2); ctx.fill();
+  // Ear right
+  ctx.fillStyle = P.skin;
+  ctx.beginPath(); ctx.ellipse(cx+52, cy+8, 8, 11, 0.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = P.skinD;
+  ctx.beginPath(); ctx.ellipse(cx+52, cy+8, 5,  7, 0.1, 0, Math.PI*2); ctx.fill();
+}
+
+function drawEyebrows(cx, ey, emotion) {
+  ctx.save();
+  ctx.strokeStyle = P.eBrow; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+  const lx = cx-23, rx = cx+23;
+  const draw = (ax, bx, ay, by) => { ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo((ax+bx)/2,Math.min(ay,by)-4,bx,by); ctx.stroke(); };
+
+  if (emotion==='Concerned') {
+    draw(lx-12,lx+12, ey+4, ey-2);
+    draw(rx+12,rx-12, ey+4, ey-2);
+  } else if (emotion==='Happy'||emotion==='Excited') {
+    draw(lx-12,lx+12, ey-2, ey-8);
+    draw(rx+12,rx-12, ey-2, ey-8);
+  } else if (emotion==='Surprised') {
+    ctx.lineWidth=2.8;
+    draw(lx-12,lx+12, ey-4, ey-14);
+    draw(rx+12,rx-12, ey-4, ey-14);
+  } else {
+    draw(lx-12,lx+12, ey+1, ey-5);
+    draw(rx+12,rx-12, ey+1, ey-5);
+  }
+  ctx.restore();
+}
+
+function drawEyes(cx, ey, bf, emotion) {
+  const eyes = [{x:cx-23,d:-1},{x:cx+23,d:1}];
+  const ew=20, eh=22;
+  const bh = eh * bf;
+
+  eyes.forEach(({x,d}) => {
+    ctx.save();
+    // White
+    ctx.fillStyle = P.eWhite;
+    ctx.beginPath(); ctx.ellipse(x,ey,ew/2,bh/2,0,0,Math.PI*2); ctx.fill();
+
+    if (bf > 0.12) {
+      // Iris
+      const ir = Math.min(8.5, bh*0.44);
+      ctx.save();
+      ctx.beginPath(); ctx.ellipse(x,ey,ew/2,bh/2,0,0,Math.PI*2); ctx.clip();
+      ctx.fillStyle = rg(x-2,ey-2,0.5,ir,[0,'#90d0ff'],[0.45,P.eIris],[1,P.eIrisD]);
+      ctx.beginPath(); ctx.arc(x,ey,ir,0,Math.PI*2); ctx.fill();
+      // Pupil
+      ctx.fillStyle=P.ePupil;
+      ctx.beginPath(); ctx.arc(x,ey,ir*0.44,0,Math.PI*2); ctx.fill();
+      // Highlights
+      ctx.fillStyle='rgba(255,255,255,0.95)';
+      ctx.beginPath(); ctx.arc(x-ir*0.35,ey-ir*0.32,ir*0.22,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(x+ir*0.28,ey+ir*0.18,ir*0.13,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    // Eyelid line
+    if (bf > 0.08) {
+      ctx.strokeStyle=P.eLash; ctx.lineWidth=2.8;
+      ctx.beginPath(); ctx.ellipse(x,ey-bh*0.08,ew/2+1,bh/2+1,0,Math.PI,0); ctx.stroke();
+      // Lashes
+      ctx.lineWidth=1.4;
+      for(let i=0;i<4;i++){
+        const ang=-Math.PI*0.18+(Math.PI*0.52/3)*i;
+        const lx2=x+Math.cos(ang)*(ew/2+1.5);
+        const ly =ey-bh*0.08-Math.sin(ang)*(bh/2+1.5);
+        ctx.beginPath(); ctx.moveTo(lx2,ly); ctx.lineTo(lx2+Math.cos(ang)*4.5*d,ly-4.5); ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle=P.eLash; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(x-ew/2,ey); ctx.bezierCurveTo(x-ew*0.2,ey-3,x+ew*0.2,ey-3,x+ew/2,ey); ctx.stroke();
+    }
+
+    // Happy eye overlay
+    if ((emotion==='Happy'||emotion==='Excited') && bf>0.5) {
+      ctx.fillStyle=P.skin; ctx.beginPath(); ctx.rect(x-ew/2-2,ey,ew+4,eh); ctx.fill();
+      ctx.strokeStyle=P.eLash; ctx.lineWidth=3.2;
+      ctx.beginPath(); ctx.arc(x,ey+5,10,Math.PI*1.1,Math.PI*1.9); ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawNose(cx,ny) {
+  ctx.save();
+  ctx.strokeStyle=P.nose; ctx.lineWidth=1.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx-3,ny); ctx.lineTo(cx,ny+5); ctx.lineTo(cx+3,ny); ctx.stroke();
+  ctx.restore();
+}
+
+function drawMouth(cx,my,speaking,emotion) {
+  ctx.save(); ctx.lineCap='round';
+  const ph = S.speakT*14;
+
+  if (speaking && emotion!=='Happy' && emotion!=='Excited') {
+    const op = 0.28 + 0.72*Math.abs(Math.sin(ph));
+    ctx.fillStyle='#bb3345';
+    ctx.beginPath(); ctx.ellipse(cx,my+op*5,8.5,7*op,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,180,190,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx,my+op*3+1.5,5,3.5*op,0,0,Math.PI*2); ctx.fill();
+  } else if (emotion==='Happy'||emotion==='Excited') {
+    ctx.strokeStyle=P.mouth; ctx.lineWidth=2.8;
+    ctx.beginPath(); ctx.moveTo(cx-13,my); ctx.bezierCurveTo(cx-7,my+12,cx+7,my+12,cx+13,my); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.55)';
+    ctx.beginPath(); ctx.ellipse(cx,my+5,8,4.5,0,0,Math.PI); ctx.fill();
+  } else if (emotion==='Concerned') {
+    ctx.strokeStyle=P.mouth; ctx.lineWidth=2.8;
+    ctx.beginPath(); ctx.moveTo(cx-10,my+5); ctx.bezierCurveTo(cx-4,my-1,cx+4,my-1,cx+10,my+5); ctx.stroke();
+  } else if (emotion==='Surprised') {
+    ctx.fillStyle='#bb3345';
+    ctx.beginPath(); ctx.ellipse(cx,my+3,7,9,0,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.strokeStyle=P.mouth; ctx.lineWidth=2.8;
+    ctx.beginPath(); ctx.moveTo(cx-9,my+1); ctx.bezierCurveTo(cx-4,my+6,cx+4,my+6,cx+9,my+1); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBlush(cx,cy,emotion) {
+  const show = ['Happy','Excited','Embarrassed','Relaxed'].includes(emotion)||emotion==='Relaxed';
+  if (!show) return;
+  const a = emotion==='Embarrassed' ? 0.52 : 0.28;
+  ctx.fillStyle = `rgba(255,115,145,${a})`;
+  ctx.save(); ctx.filter='blur(4px)';
+  ctx.beginPath(); ctx.ellipse(cx-35,cy+18,15,8,0.18,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+35,cy+18,15,8,-0.18,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawFrontHair(cx, hy) {
+  const gr = lg(cx-60,hy-40,cx+60,hy+30, [0,P.hShadow],[0.3,P.hLight],[0.65,P.hMain],[1,P.hShadow]);
+  ctx.fillStyle = gr;
+
+  // Top dome
+  ctx.beginPath();
+  ctx.moveTo(cx-50,hy+2);
+  ctx.bezierCurveTo(cx-52,hy-32, cx-18,hy-64, cx,hy-68);
+  ctx.bezierCurveTo(cx+18,hy-64, cx+52,hy-32, cx+50,hy+2);
+  ctx.bezierCurveTo(cx+28,hy-8, cx-28,hy-8, cx-50,hy+2);
+  ctx.fill();
+
+  // Left big bang
+  ctx.beginPath();
+  ctx.moveTo(cx-50,hy+2);
+  ctx.bezierCurveTo(cx-60,hy+18, cx-56,hy+58, cx-40,hy+74);
+  ctx.bezierCurveTo(cx-26,hy+84, cx-16,hy+76, cx-14,hy+58);
+  ctx.bezierCurveTo(cx-11,hy+36, cx-18,hy+10, cx-22,hy+2);
+  ctx.closePath(); ctx.fill();
+
+  // Left thin bang
+  ctx.beginPath();
+  ctx.moveTo(cx-22,hy);
+  ctx.bezierCurveTo(cx-18,hy+24, cx-14,hy+50, cx-4,hy+60);
+  ctx.bezierCurveTo(cx+2,hy+65, cx+7,hy+60, cx+8,hy+50);
+  ctx.bezierCurveTo(cx+8,hy+30, cx+2,hy+5, cx-2,hy-1);
+  ctx.closePath(); ctx.fill();
+
+  // Right bang
+  ctx.beginPath();
+  ctx.moveTo(cx+50,hy+2);
+  ctx.bezierCurveTo(cx+60,hy+18, cx+56,hy+58, cx+40,hy+70);
+  ctx.bezierCurveTo(cx+26,hy+80, cx+16,hy+72, cx+14,hy+54);
+  ctx.bezierCurveTo(cx+11,hy+32, cx+18,hy+10, cx+22,hy+2);
+  ctx.closePath(); ctx.fill();
+
+  // Center tuft
+  ctx.beginPath();
+  ctx.moveTo(cx-8,hy-22);
+  ctx.bezierCurveTo(cx-12,hy, cx-8,hy+32, cx,hy+42);
+  ctx.bezierCurveTo(cx+8,hy+32, cx+12,hy, cx+8,hy-22);
+  ctx.closePath(); ctx.fill();
+
+  // Highlight shimmer
+  ctx.fillStyle='rgba(255,255,255,0.38)';
+  ctx.beginPath(); ctx.ellipse(cx-8,hy-32,16,9,-0.3,0,Math.PI*2); ctx.fill();
+}
+
+// ════════════════════════════════════════════════
+//  FULL CHARACTER RENDER
+// ════════════════════════════════════════════════
+function renderKiana() {
+  const cx = 130, baseY = 360;
+  const by = Math.sin(S.breathT)*4;
+  const bf = S.blinkFact;
+  const em = S.emotion;
+  const sp = S.speaking;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.translate(0, by);
+
+  const headCY = baseY - 185;
+  const hairTop = headCY - 60;
+  const bodyTop = baseY - 80;
+
+  drawBackHair(cx, hairTop);
+  drawBody(cx, bodyTop);
+
+  // Neck
+  const neckGr = lg(cx-13, headCY+45, cx+13, headCY+45, [0,P.skinD],[0.5,P.skin],[1,P.skinD]);
+  ctx.fillStyle = neckGr;
+  ctx.beginPath(); ctx.roundRect(cx-13, headCY+45, 26, 48, 5); ctx.fill();
+
+  drawHead(cx, headCY);
+  drawEyebrows(cx, headCY - 20, em);
+  drawEyes(cx, headCY - 9, bf, em);
+  drawNose(cx, headCY + 14);
+  drawMouth(cx, headCY + 28, sp, em);
+  drawBlush(cx, headCY, em);
+  drawFrontHair(cx, hairTop);
+
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ════════════════════════════════════════════════
+let lastNow = 0;
+
+function loop(now) {
+  const dt = Math.min((now - lastNow)/1000, 0.05);
+  lastNow = now;
+
+  S.breathT += dt * 1.3;
+
+  // Blinking
+  S.blinkT += dt;
+  const interval = 3.8;
+  if (S.blinkPhase==='idle' && S.blinkT > interval) {
+    S.blinkPhase = 'closing'; S.blinkT = 0;
+  }
+  if (S.blinkPhase==='closing') {
+    S.blinkFact = Math.max(0, S.blinkFact - dt/0.08);
+    if (S.blinkFact <= 0) S.blinkPhase = 'opening';
+  }
+  if (S.blinkPhase==='opening') {
+    S.blinkFact = Math.min(1, S.blinkFact + dt/0.1);
+    if (S.blinkFact >= 1) { S.blinkPhase='idle'; S.blinkT=0; }
+  }
+
+  // Speaking
+  if (S.speaking) {
+    S.speakT += dt;
+    if (S.speakT > S.speakDur) S.speaking = false;
+  }
+
+  renderKiana();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ════════════════════════════════════════════════
+//  UI
+// ════════════════════════════════════════════════
+const bubble   = document.getElementById('bubble');
+const chatBox  = document.getElementById('chatBox');
+const msgInput = document.getElementById('msgInput');
+const micBtn   = document.getElementById('micBtn');
+const statusDot= document.getElementById('status');
+
+let bubTimer = null;
+
+function showBubble(text, ms=9000) {
+  bubble.textContent = text;
+  bubble.classList.add('show');
+  clearTimeout(bubTimer);
+  if (ms > 0) bubTimer = setTimeout(()=>bubble.classList.remove('show'), ms);
+}
+
+function setStatus(ok) {
+  statusDot.style.background = ok ? '#22c55e' : '#ef4444';
+  statusDot.classList.add('show');
+  setTimeout(()=>statusDot.classList.remove('show'),3000);
+}
+
+// Click on character toggles chat
+canvas.addEventListener('click', () => {
+  S.chatOpen = !S.chatOpen;
+  chatBox.classList.toggle('show', S.chatOpen);
+  if (S.chatOpen) setTimeout(()=>msgInput.focus(),120);
+});
+
+// API
+async function sendMsg() {
+  const txt = msgInput.value.trim();
+  if (!txt) return;
+  msgInput.value = '';
+  showBubble('…✨', 0);
+
+  try {
+    const r = await fetch('http://127.0.0.1:5000/api/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:txt})
+    });
+    const d = await r.json();
+    S.emotion = d.emotion || 'Relaxed';
+    const resp = d.response || '';
+    showBubble(resp, 11000);
+    setStatus(true);
+
+    // TTS
+    const t = await fetch('http://127.0.0.1:5000/api/voice-tts',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text:resp})
+    });
+    const td = await t.json();
+    if (td.audio_url) {
+      const aud = new Audio('http://127.0.0.1:5000'+td.audio_url);
+      S.speaking=true; S.speakT=0; S.speakDur=resp.length*0.068;
+      aud.play().catch(()=>{});
+      aud.addEventListener('ended',()=>{ S.speaking=false; });
+    }
+  } catch(e) {
+    showBubble('I seem to be disconnected 🔌', 4000);
+    setStatus(false);
+  }
+}
+
+document.getElementById('sendBtn').addEventListener('click', sendMsg);
+msgInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendMsg(); });
+
+// Mic
+micBtn.addEventListener('click', ()=>{ S.micOn ? stopRec() : startRec(); });
+
+async function startRec() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    S.audioChunks=[];
+    S.mediaRec = new MediaRecorder(stream, {mimeType:'audio/webm'});
+    S.mediaRec.addEventListener('dataavailable',e=>S.audioChunks.push(e.data));
+    S.mediaRec.addEventListener('stop', uploadAudio);
+    S.mediaRec.start();
+    S.micOn=true; micBtn.classList.add('on');
+    showBubble('🎤 Listening…', 0);
+  } catch(e) { showBubble('Mic access denied 😔', 3000); }
+}
+
+function stopRec() {
+  if (S.mediaRec) {
+    S.mediaRec.stop();
+    S.mediaRec.stream.getTracks().forEach(t=>t.stop());
+  }
+  S.micOn=false; micBtn.classList.remove('on');
+}
+
+async function uploadAudio() {
+  const blob = new Blob(S.audioChunks,{type:'audio/webm'});
+  const fd   = new FormData();
+  fd.append('audio', blob, 'voice.webm');
+  showBubble('💭 Thinking…', 0);
+  try {
+    const r  = await fetch('http://127.0.0.1:5000/api/voice-stt',{method:'POST',body:fd});
+    const d  = await r.json();
+    const tx = (d.text||'').trim();
+    if (tx) { msgInput.value=tx; sendMsg(); }
+    else     { showBubble("Couldn't catch that 🎧", 3000); }
+  } catch(e) { showBubble('Voice error 😔',3000); }
+}
+
+// ── Exposed JS bridges (called from Python / pywebview) ──
+window.receiveKianaMessage = (text, emotion) => {
+  S.emotion = emotion || 'Relaxed';
+  showBubble(text, 11000);
+  S.speaking=true; S.speakT=0; S.speakDur=text.length*0.068;
+};
+window.showWakeIndicator = () => showBubble('✨ I\'m listening…', 6000);
+window.playAudioUrl = url => {
+  const a = new Audio('http://127.0.0.1:5000'+url);
+  S.speaking=true; S.speakT=0; S.speakDur=6;
+  a.play().catch(()=>{});
+  a.addEventListener('ended',()=>{ S.speaking=false; });
+};
+window.setEmotion = em => { S.emotion = em; };
+
+// Greeting
+setTimeout(()=>{
+  const h = new Date().getHours();
+  const g = h<12 ? 'Good morning! ☀️' : h<17 ? 'Good afternoon! 🌤️' : 'Good evening! 🌙';
+  showBubble(g + ' Click me to chat 💙', 6000);
+},1400);
+</script>
+</body>
+</html>

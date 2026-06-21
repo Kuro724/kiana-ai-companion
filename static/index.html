@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiana - Personal Anime AI Companion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- All JS files use absolute /static/ paths — no import map needed -->
+
+
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Panel for Memories and Stats -->
+        <aside class="sidebar-panel">
+            <div class="sidebar-header">
+                <h2>Companion Stats</h2>
+                <div class="familiarity-badge">
+                    <span class="heart-icon">💖</span>
+                    <span id="familiarity-score">0</span> Fam
+                </div>
+            </div>
+            
+            <div class="sidebar-section">
+                <h3>Kiana Profile</h3>
+                <div class="stat-card">
+                    <div class="stat-row">
+                        <span class="stat-label">Emotion:</span>
+                        <span id="kiana-emotion-tag" class="emotion-relaxed">Relaxed</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Interactions:</span>
+                        <span id="interaction-count">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-section memories-section">
+                <h3>Stored Memories</h3>
+                <div id="memories-container" class="memories-container">
+                    <div class="empty-memories">No memories stored yet. Let me get to know you!</div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>3D Avatar Model (.vrm)</h3>
+                <div class="vrm-upload-card">
+                    <input type="file" id="vrm-file-input" accept=".vrm" style="display:none">
+                    <button id="upload-vrm-btn" class="upload-vrm-button">Upload Custom VRM</button>
+                    <div id="vrm-upload-status" class="vrm-status-text">Using default model</div>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <button id="reset-btn" class="reset-button">Reset Companion Data</button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div class="toggle-sidebar" id="toggle-sidebar-btn">
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                        <path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                    </svg>
+                </div>
+                <h1>Kiana</h1>
+                <div class="voice-toggle-indicator" id="tts-toggle" title="Toggle Auto Text-to-Speech">
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                        <path id="tts-icon-path" fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                </div>
+            </header>
+
+            <!-- Interactive 3D VRM Anime Avatar -->
+            <section class="avatar-section">
+                <div class="avatar-wrapper">
+                    <div class="avatar-ring" id="avatar-ring"></div>
+                    <div id="kiana-avatar-3d" class="kiana-avatar-3d">
+                        <canvas id="vrm-canvas"></canvas>
+                    </div>
+                    <div class="emotion-glow" id="emotion-glow"></div>
+                </div>
+                <div class="kiana-info">
+                    <h2 class="kiana-name">Kiana</h2>
+                    <p id="kiana-current-status" class="kiana-status">Listening for you...</p>
+                </div>
+            </section>
+
+
+            <!-- Conversation messages container -->
+            <section class="messages-container" id="messages-container">
+                <!-- Chat messages will be dynamically added here -->
+            </section>
+
+            <!-- Input area -->
+            <footer class="input-area">
+                <div class="input-wrapper">
+                    <button id="voice-btn" class="voice-btn" title="Speak to Kiana">
+                        <svg viewBox="0 0 24 24" width="24" height="24" id="mic-icon">
+                            <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                        </svg>
+                    </button>
+                    <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+                    <button id="send-btn" class="send-btn" title="Send message">
+                        <svg viewBox="0 0 24 24" width="24" height="24">
+                            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </footer>
+        </main>
+    </div>
+    <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+
+# Sensitive files, local caches, and environments
+.env
+*.db
+*.sqlite
+*.sqlite3
+.qt_cache/
+.qt_storage/
+venv/
+.venv/
+env/
